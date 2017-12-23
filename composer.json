@@ -1,0 +1,29 @@
+{
+  "name": "chenmobuys/laravel-upload",
+  "version": "1.0",
+  "description": "laravel-upload",
+  "type": "library",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Chenmobuys",
+      "email": "chenmobuys@gmail.com"
+    }
+  ],
+  "require": {
+    "php": " >=7.0.0",
+    "laravel/framework": "5.5.*"
+  },
+  "autoload": {
+    "psr-4": {
+      "Chenmobuys\\LaravelUpload\\": "src/"
+    }
+  },
+  "extra": {
+    "laravel": {
+      "providers": [
+        "Chenmobuys\\LaravelUpload\\LaravelUploadServiceProvider"
+      ]
+    }
+  }
+}
