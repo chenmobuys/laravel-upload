@@ -789,11 +789,18 @@ let upload = {
 
     //初始化处理
     initHandle: function () {
-        this.config()
+        let _this = this
+        _this.config()
         if (typeof this.configs.init == "function") {
-            this.configs.init()
+            _this.configs.init()
         }
-        return this
+
+        _this.event.on('upload',function(){
+            _this.upload()
+            console.log('uploading')
+        })
+
+        return _this
     },
 
     //获取配置信息
@@ -814,12 +821,17 @@ let upload = {
         this.savedPath = ""
         this.fileHash = ""
         this.blobSlice = File.prototype.slice || File.prototype.mozSlice || File.prototype.webkitSlice
-        this.i = 0
+
+        if(!this.i)this.i = 0
 
         if (!("FileReader" in window) || !("File" in window)) {
             this.preprocess() //浏览器不支持读取本地文件，跳过计算hash
         } else {
-            this.calculateHash()
+            if(!this.i){
+                this.calculateHash()
+            }else{
+                this.preprocess()
+            }
         }
     },
 
@@ -895,7 +907,6 @@ let upload = {
         })
     },
 
-    //上传块
     uploading: function () {
 
         let _this = this,
@@ -903,7 +914,14 @@ let upload = {
             end = Math.min(this.fileSize, start + this.chunkSize),
             form = new FormData()
 
-        _this.unPush()
+        //监听暂停事件
+        _this.event.on('push',function(msg){
+            if(msg.pushStatus){
+                //clearInterval(_this.uploadingInterval)
+
+                _this.sleep(3000)
+            }
+        })
 
         form.append("file", this.file.slice(start, end))
 
@@ -1022,18 +1040,6 @@ let upload = {
                 return
             }
         }
-    },
-
-    //暂停
-    push: function () {
-        let _this = this;
-        _this.pushStatus = 1;
-    },
-
-    //开始
-    unPush: function () {
-        let _this = this;
-        _this.pushStatus = 0;
     },
 
     ajax: function (options) {
@@ -1174,7 +1180,39 @@ let upload = {
         proxy.guid = fn.guid = fn.guid
 
         return proxy
+    },
+
+    event: {
+        // 通过on接口监听事件eventName
+        // 如果事件eventName被触发，则执行callback回调函数
+        on: function (eventName, callback) {
+            //你的代码
+            if(!this.handles){
+                //this.handles={};
+                Object.defineProperty(this, "handles", {
+                    value: {},
+                    enumerable: false,
+                    configurable: true,
+                    writable: true
+                })
+            }
+
+            if(!this.handles[eventName]){
+                this.handles[eventName]=[];
+            }
+            this.handles[eventName].push(callback);
+        },
+        // 触发事件 eventName
+        emit: function (eventName) {
+            //你的代码
+            if(this.handles[arguments[0]]){
+                for(var i=0;i<this.handles[arguments[0]].length;i++){
+                    this.handles[arguments[0]][i](arguments[1]);
+                }
+            }
+        }
     }
+
 }
 
 export default upload.initHandle()
