@@ -1104,7 +1104,7 @@ let upload = {
         xhr.send(options.data)
     },
 
-    xhr: function () {
+    xhr: function () { //xhr对象
 
         // IE7+,Firefox, Opera, Chrome ,Safari
         if (typeof XMLHttpRequest != "undefined") {
@@ -1155,7 +1155,7 @@ let upload = {
         return proxy
     },
 
-    event: {
+    event: {  //事件
         // 通过on接口监听事件eventName
         // 如果事件eventName被触发，则执行callback回调函数
         on: function (eventName, callback) {
