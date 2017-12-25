@@ -759,17 +759,51 @@ let upload = {
 
     //默认配置
     defaultConfig: {
+        /**
+         * 初始化
+         * @param data
+         */
         init: function (data) {
         },
+        /**
+         * 触发inputId
+         */
         inputId: "",
+        /**
+         * 预处理地址 文件合并成功后返回路径
+         * 返回格式 {error: 0, chunkSize: 1048576, subDir: "201712", uploadBaseName: "1514170775890", uploadExt: "chm"}
+         */
         preprocessUrl: "/chen/preprocess",
+        /**
+         * 上传块地址
+         * 返回格式 {error: 0, savedPath: ""}
+         */
         uploadingUrl: "/chen/uploading",
+        /**
+         * md5校验进度回调
+         * @param percent 校验进度百分比
+         */
+        cancelUrl: "/chen/uploadCancel",
         preprocess: function (percent) {
         },
-        uploadSuccess: function (res) {
+        /**
+         * 上传块成功回调
+         * @param res 服务端返回数据
+         * @param percent 上传进度百分比
+         * @param speed 上传速度
+         * @param time time.spendTime 上传已花费时间 time.remainTime 上传剩余时间
+         */
+        uploadSuccess: function (res,percent,speed,time) {
         },
+        /**
+         * 上传失败回调
+         * @param err 错误
+         */
         uploadError: function (err) {
         },
+        cancelSuccess: function(){
+        },
+        cancelError:function(err){}
     },
 
     //配置
@@ -790,25 +824,44 @@ let upload = {
     //初始化处理
     initHandle: function () {
         let _this = this
+
         _this.config()
+
         if (typeof this.configs.init == "function") {
             _this.configs.init()
         }
 
-        _this.event.on('upload',function(){
+        //监听上传事件
+        _this.event.on('upload', function () {
+            console.log('uploading...')
+            _this.i = 0
+            clearInterval(_this.uploadingInterval)
             _this.upload()
-            console.log('uploading')
+        })
+
+        //监听暂停事件
+        _this.event.on('push', function () {
+            console.log('push...')
+            clearInterval(_this.uploadingInterval)
+        })
+
+        //监听开始事件
+        _this.event.on('start', function(){
+            console.log('start...')
+            _this.uploadingInterval = setInterval(_this.proxy(_this.uploading, _this), 1000)
+        })
+
+        //监听取消事件
+        _this.event.on('cancel',function(){
+            console.log('cancel...')
+            clearInterval(_this.uploadingInterval)
+            _this.cancel()
         })
 
         return _this
     },
 
-    //获取配置信息
-    getConfig: function () {
-        return this.configs
-    },
-
-    upload: function () {
+    upload: function () { //上传
         this.fileDom = document.getElementById(this.configs.inputId)
         this.file = this.fileDom.files[0]
         this.fileName = this.file.name
@@ -821,23 +874,19 @@ let upload = {
         this.savedPath = ""
         this.fileHash = ""
         this.blobSlice = File.prototype.slice || File.prototype.mozSlice || File.prototype.webkitSlice
-
-        if(!this.i)this.i = 0
+        this.i = 0
+        this.spendTime = 0
 
         if (!("FileReader" in window) || !("File" in window)) {
             this.preprocess() //浏览器不支持读取本地文件，跳过计算hash
         } else {
-            if(!this.i){
-                this.calculateHash()
-            }else{
-                this.preprocess()
-            }
+            this.calculateHash()
         }
     },
 
     calculateHash: function () { //计算hash
         let _this = this,
-            chunkSize = 1024 * 1024 * 2,
+            chunkSize = 1024 * 1024 * 1,
             chunks = Math.ceil(_this.file.size / chunkSize),
             currentChunk = 0,
             spark = new SparkMD5.ArrayBuffer(),
@@ -907,274 +956,198 @@ let upload = {
         })
     },
 
-    uploading: function () {
+    uploading: function () { //上传块
 
         let _this = this,
             start = this.i * this.chunkSize,
             end = Math.min(this.fileSize, start + this.chunkSize),
             form = new FormData()
 
-        //监听暂停事件
-        _this.event.on('push',function(msg){
-            if(msg.pushStatus){
-                //clearInterval(_this.uploadingInterval)
-
-                _this.sleep(3000)
-            }
-        })
-
         form.append("file", this.file.slice(start, end))
-
         form.append("upload_ext", this.uploadExt)
-
         form.append("chunk_total", this.chunkCount)
-
         form.append("chunk_index", this.i + 1)
-
         form.append("upload_basename", this.uploadBaseName)
-
         form.append("group", this.group)
-
         form.append("sub_dir", this.subDir)
 
         _this.ajax({
-
             url: _this.configs.uploadingUrl,
-
             type: "POST",
-
             data: form,
-
             dataType: "json",
-
             async: false,
-
             processData: false,
-
             contentType: false,
-
-            success: function (res, time) {
-
-                if (_this.pushStatus) {
-                    _this.sleep(3000)
-                }
-
+            success: function (res, costTime) {
                 if (res.error) {
-
                     console.log(res.error)
-
                     clearInterval(_this.uploadingInterval)
-
                     return
-
                 }
 
-                let percent = ((_this.i + 1) / _this.chunkCount * 100).toFixed(2)
-
-                let uploadSize, speed
+                let uploadSize, remainSize, speed, percent
+                let time = {}
 
                 if (_this.i + 1 === _this.chunkCount) {
-
                     clearInterval(_this.uploadingInterval)
-
                     uploadSize = _this.fileSize - _this.i * _this.chunkSize
-
+                    remainSize = 0
                 } else {
-
                     uploadSize = _this.chunkSize
-
+                    remainSize = _this.fileSize - _this.i * _this.chunkSize
                 }
 
-                speed = _this.speed(uploadSize, time)
+                speed = uploadSize / costTime
+                percent = (remainSize ? ((_this.fileSize - remainSize) / _this.fileSize) * 100 : 100).toFixed(2)
+                time.spendTime = ((_this.spendTime + costTime) / 1000).toFixed(2) + 's'
+                time.remainTime = (remainSize / speed / 1000).toFixed(2) + 's'
 
-                typeof(_this.configs.uploadSuccess) !== "undefined" ? _this.configs.uploadSuccess(res, percent + "%", speed) : null
+                typeof(_this.configs.uploadSuccess) !== "undefined" ? _this.configs.uploadSuccess(res, percent + "%", speed, time) : null
 
+                _this.spendTime = _this.spendTime + costTime
                 ++_this.i
-
             },
             error: function (XMLHttpRequest, textStatus, errorThrown) {
-
                 if (XMLHttpRequest.status === 0) {
-
                     console.log('重试...')
-
                     _this.sleep(3000)
-
                 } else {
-
                     console.log('上传失败')
-
                     clearInterval(_this.uploadingInterval)
-
                 }
             }
-
         })
     },
 
-    speed: function (bytes, time) {
+    cancel:function() { //取消上传
+        let _this = this,
+            form = new FormData()
 
-        let speed = (bytes / 1024) / (time / 1000)
+        form.append("upload_basename", this.uploadBaseName)
+        form.append("upload_ext", this.uploadExt)
+        form.append("group", this.group)
+        form.append("sub_dir",this.subDir)
 
-        if (speed > 1024) {
-
-            speed = (speed / 1024).toFixed(2) + 'Mb/s'
-
-        } else {
-
-            speed = speed.toFixed(2) + 'Kb/s'
-
-        }
-
-        return speed
+        _this.ajax({
+            url: _this.configs.cancelUrl,
+            type: "POST",
+            data: form,
+            dataType: "json",
+            async: false,
+            processData: false,
+            contentType: false,
+            success: function (res) {
+                if (res.error) {
+                    console.log(res.error)
+                    clearInterval(_this.uploadingInterval)
+                    return
+                }
+                console.log(res)
+            },
+            error: function (XMLHttpRequest, textStatus, errorThrown) {
+                if (XMLHttpRequest.status === 0) {
+                    console.log('重试...')
+                    _this.sleep(3000)
+                } else {
+                    console.log('取消失败')
+                    clearInterval(_this.uploadingInterval)
+                }
+            }
+        })
     },
 
-    sleep: function (milliSecond) {
-
+    sleep: function (milliSecond) { //暂停
         let wakeUpTime = new Date().getTime() + milliSecond
-
         while (true) {
-
             if (new Date().getTime() > wakeUpTime) {
-
                 return
             }
         }
     },
 
-    ajax: function (options) {
-
+    ajax: function (options) { //异步请求
         options = options || {}
-
         let xhr = this.xhr()
-
         let startTime = new Date().getTime()
-
         xhr.onreadystatechange = function () {
-
             switch (xhr.readyState) {
                 case 0 :
-
                     //console.log(0,'未初始化....')
                     break
                 case 1 :
-
                     //console.log(1,'请求参数已准备，尚未发送请求...')
                     break
                 case 2 :
-
                     //console.log(2,'已经发送请求,尚未接收响应')
                     break
                 case 3 :
-
                     //console.log(3,'正在接受部分响应.....')
                     break
                 case 4 :
-
                     //console.log(4,'响应全部接受完毕')
                     if ((xhr.status >= 200 && xhr.status < 300) || xhr.status == 304) {
-
                         if (typeof options.success != "undefined") {
-
                             let costTime = new Date().getTime() - startTime
-
                             options.success(JSON.parse(xhr.responseText), costTime)
-
                         }
-
                     } else {
                         if (typeof options.error != "undefined") {
-
                             options.error('error:' + xhr.status)
-
                         }
-
                     }
                     break
             }
         }
 
         xhr.open(options.type, options.url)
-
         xhr.send(options.data)
-
     },
 
     xhr: function () {
 
         // IE7+,Firefox, Opera, Chrome ,Safari
         if (typeof XMLHttpRequest != "undefined") {
-
             return new XMLHttpRequest()
-
         }
-
         // IE6-
         else if (typeof ActiveXObject != "undefined") {
-
             if (typeof arguments.callee.activeXString != "string") {
-
                 let versions = ["MSXML2.XMLHttp.6.0", "MSXML2.XMLHttp.3.0", "MSXMLHttp"], i, len
-
                 for (i = 0, len = versions.length; i < len; i++) {
-
                     try {
-
                         new ActiveXObject(versions[i])
-
                         arguments.callee.activeXString = versions[i]
-
                         break
-
                     } catch (ex) {
-
                         alert("请升级浏览器版本")
-
                     }
-
                 }
-
             }
-
             return arguments.callee.activeXString
-
         } else {
-
             throw new Error("XHR对象不可用")
-
         }
     },
 
     proxy: function (fn, context) {
-
         let arr = []
-
         let slice = arr.slice
-
         let tmp, args, proxy
-
         if (typeof context === "string") {
-
             tmp = fn[context]
-
             context = fn
-
             fn = tmp
-
         }
 
         if (typeof fn != "function") {
-
             return undefined
-
         }
 
         args = slice.call(arguments, 2)
 
         proxy = function () {
-
             return fn.apply(context || this, args.concat(slice.call(arguments)))
-
         }
 
         proxy.guid = fn.guid = fn.guid
@@ -1187,7 +1160,7 @@ let upload = {
         // 如果事件eventName被触发，则执行callback回调函数
         on: function (eventName, callback) {
             //你的代码
-            if(!this.handles){
+            if (!this.handles) {
                 //this.handles={};
                 Object.defineProperty(this, "handles", {
                     value: {},
@@ -1197,22 +1170,21 @@ let upload = {
                 })
             }
 
-            if(!this.handles[eventName]){
-                this.handles[eventName]=[];
+            if (!this.handles[eventName]) {
+                this.handles[eventName] = [];
             }
             this.handles[eventName].push(callback);
         },
         // 触发事件 eventName
         emit: function (eventName) {
             //你的代码
-            if(this.handles[arguments[0]]){
-                for(var i=0;i<this.handles[arguments[0]].length;i++){
+            if (this.handles[arguments[0]]) {
+                for (var i = 0; i < this.handles[arguments[0]].length; i++) {
                     this.handles[arguments[0]][i](arguments[1]);
                 }
             }
         }
     }
-
 }
 
 export default upload.initHandle()
